@@ -112,7 +112,7 @@ Copier le contenu du fichier config_sample/settings.py dans config/settings.py.
 * IDGO_PASSWORD = mot de passe pour accéder au catalogue idgo depuis geocontrib ;
 * SSO_OGS_SESSION_URL = url api OGS pour vérifier l'activation de la session utilisateur (si défini active la connexion par OGS) ;
 * AUTOMATIC_VIEW_CREATION_MODE = mode de création des vues SQL créées automatiquement, soit 'Projet' soit 'Type'(valeur par défaut) ;
-* AUTOMATIC_VIEW_SCHEMA_NAME = nom attribué aux vues SQL créées automatiquement (par défaut 'auto_view') ;
+* AUTOMATIC_VIEW_SCHEMA_NAME = nom du schema où sont créées automatiquement les vues SQL (par défaut 'Data') ;
 
 
 Copier le contenu du fichier config_sample/urls.py dans config/urls.py

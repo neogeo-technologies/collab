@@ -7,10 +7,12 @@ from django.contrib.admin.actions import delete_selected
 from django.contrib.auth import get_user_model
 from django.contrib.gis import admin
 from django.contrib.postgres.aggregates import StringAgg
+from django.core.exceptions import ValidationError
 from django.db import connections
 from django.db.models import CharField, OuterRef, Subquery, F
 from django.forms import formset_factory
 from django.forms import modelformset_factory
+from django.forms.models import BaseInlineFormSet
 from django.shortcuts import redirect
 from django.template.loader import render_to_string
 from django.template.response import TemplateResponse
@@ -55,8 +57,21 @@ class CustomFieldAdmin(admin.ModelAdmin):
         return title
 
 
+class CustomFieldInlineFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        
+        # Extract names in lowercase to check for duplicates
+        names_lower = [form.cleaned_data.get('name', '').lower() for form in self.forms if form.cleaned_data.get('name')]
+        
+        # Check if the same name exists multiple times
+        if len(names_lower) != len(set(names_lower)):
+            raise ValidationError("Les champs personnalisés ne doivent pas avoir des noms identiques, même avec des différences de casse.")
+
+
 class CustomFieldTabular(admin.TabularInline):
     model = CustomField
+    formset = CustomFieldInlineFormSet  # Associate the custom formset
     extra = 0
     can_delete = False
     can_order = True
