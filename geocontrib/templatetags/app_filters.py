@@ -2,6 +2,7 @@ from django.template.defaulttags import register
 from django.forms.fields import CheckboxInput
 from django.forms.fields import DateInput
 from django.conf import settings
+from django.utils.safestring import mark_safe
 from urllib.parse import urljoin
 
 import re
@@ -45,9 +46,9 @@ def absurl(relative_url):
 
 
 @register.filter
-def underscoreify(value):
-    """
-    Convert any string by replacing dashes ('-') with underscores ('_').
-    This can be used to make any string safe for usage in various contexts like database column names, URLs, etc.
-    """
-    return re.sub(r'[-]', '_', value)
+def safe_column_name(name):
+    # Ajouter des guillemets doubles pour les noms entièrement numériques
+    if name.isdigit():
+        return mark_safe(f'"{name}"')
+    # Appliquer underscoreify pour les autres cas (par exemple, remplacer les caractères non valides par des underscores)
+    return re.sub(r'\W|^(?=\d)', '_', name)
