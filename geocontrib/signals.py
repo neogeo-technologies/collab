@@ -121,6 +121,7 @@ def delete_sql_view(sender, instance, **kwargs):
             mode=settings.AUTOMATIC_VIEW_CREATION_MODE,
             schema_name=settings.AUTOMATIC_VIEW_SCHEMA_NAME,
             feature_type_id=instance.id,
+            feature_type_slug=instance.slug,
             project_id=instance.project.id,
             is_ft_deletion=True
         )
@@ -136,7 +137,8 @@ def create_or_update_sql_view(sender, instance, created, **kwargs):
             call_command('generate_sql_view',
                 mode=settings.AUTOMATIC_VIEW_CREATION_MODE,
                 schema_name=settings.AUTOMATIC_VIEW_SCHEMA_NAME,
-                feature_type_id=instance.id
+                feature_type_id=instance.id,
+                project_id=instance.project.id
             )
 
 @receiver(models.signals.post_save, sender='geocontrib.FeatureType')

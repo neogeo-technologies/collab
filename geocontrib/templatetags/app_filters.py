@@ -47,8 +47,8 @@ def absurl(relative_url):
 
 @register.filter
 def safe_column_name(name):
-    # Ajouter des guillemets doubles pour les noms entièrement numériques
+    # Add double quotes for fully numeric names
     if name.isdigit():
         return mark_safe(f'"{name}"')
-    # Appliquer underscoreify pour les autres cas (par exemple, remplacer les caractères non valides par des underscores)
+    # Apply underscoreify for other cases (e.g., replace invalid characters with underscores)
     return re.sub(r'\W|^(?=\d)', '_', name)
