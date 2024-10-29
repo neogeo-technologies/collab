@@ -6,6 +6,31 @@ from rest_framework.test import APIClient
 
 import pytest
 
+from django.db.models.signals import post_save, post_delete
+from geocontrib.models import CustomField, FeatureType
+from geocontrib.signals import (
+    delete_custom_field_in_sql_view,
+    update_sql_view,
+    delete_sql_view,
+    create_or_update_sql_view,
+)
+
+@pytest.fixture(autouse=True)
+def disable_signals():
+    print("DISABLE SIGNALS")
+    # Déconnecte les signaux avant chaque test
+    post_delete.disconnect(delete_custom_field_in_sql_view, sender=CustomField)
+    post_save.disconnect(update_sql_view, sender=CustomField)
+    post_delete.disconnect(delete_sql_view, sender=FeatureType)
+    post_save.disconnect(create_or_update_sql_view, sender=FeatureType)
+
+    yield  # Exécute le test
+
+    # Reconnecte les signaux après chaque test
+    post_delete.connect(delete_custom_field_in_sql_view, sender=CustomField)
+    post_save.connect(update_sql_view, sender=CustomField)
+    post_delete.connect(delete_sql_view, sender=FeatureType)
+    post_save.connect(create_or_update_sql_view, sender=FeatureType)
 
 @pytest.fixture(scope='session')
 def celery_config():
