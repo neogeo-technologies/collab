@@ -121,13 +121,21 @@ def delete_sql_view(sender, instance, **kwargs):
             mode=settings.AUTOMATIC_VIEW_CREATION_MODE,
             schema_name=settings.AUTOMATIC_VIEW_SCHEMA_NAME,
             feature_type_id=instance.id,
+            feature_type_slug=instance.slug,
             project_id=instance.project.id,
             is_ft_deletion=True
         )
 
+
 @receiver(models.signals.post_save, sender='geocontrib.FeatureType')
 @disable_for_loaddata
-def create_or_update_sql_view(sender, instance, created, **kwargs):
+def slugify_feature_type_and_create_or_update_sql_view(sender, instance, created, **kwargs):
+    # Définir le slug si l'instance est nouvellement créée
+    if created:
+        instance.slug = slugify("{}-{}".format(instance.pk, instance.title))
+        instance.save()
+    
+    # Si un champ a été mis à jour ou que l'instance a été créée
     if instance:
         update_fields = kwargs.get('update_fields', None)
         # If no fields were updated in feature_type, there is no need to update the view.
@@ -136,15 +144,9 @@ def create_or_update_sql_view(sender, instance, created, **kwargs):
             call_command('generate_sql_view',
                 mode=settings.AUTOMATIC_VIEW_CREATION_MODE,
                 schema_name=settings.AUTOMATIC_VIEW_SCHEMA_NAME,
-                feature_type_id=instance.id
+                feature_type_id=instance.id,
+                project_id=instance.project.id
             )
-
-@receiver(models.signals.post_save, sender='geocontrib.FeatureType')
-@disable_for_loaddata
-def slugify_feature_type(sender, instance, created, **kwargs):
-    if created:
-        instance.slug = slugify("{}-{}".format(instance.pk, instance.title))
-        instance.save()
 
 
 @receiver(models.signals.post_save, sender='geocontrib.Project')

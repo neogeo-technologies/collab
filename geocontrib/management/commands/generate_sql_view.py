@@ -34,6 +34,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--feature_type_id', type=int, required=False, help='ID of the FeatureType for which to create the view')
+        parser.add_argument('--feature_type_slug', type=str, required=False, help='Slug of the FeatureType for which to delete the view')
         parser.add_argument('--project_id', type=int, required=False, help='ID of the Project for which to create the view')
         parser.add_argument('--deleted_cf_id', type=int, required=False, help='ID of the deleted custom field to remove from view')
         parser.add_argument('--is_ft_deletion', type=bool, required=False, help='Should the view be deleted')
@@ -47,10 +48,11 @@ class Command(BaseCommand):
         """
         is_ft_deletion = options['is_ft_deletion']
         feature_type_id = options['feature_type_id']
+        feature_type_slug = options['feature_type_slug']
         project_id = options['project_id']
         mode = options['mode'] or 'Type'
         deleted_cf_id = options['deleted_cf_id']
-        schema_name = options['schema_name'] or 'Data'
+        schema_name = options['schema_name'] or 'data'
 
         # Specify the feature fields to display in the view
         feature_fields_selection = ['feature_id', 'title', 'description', 'geom', 'project_id', 'feature_type_id', 'status']
@@ -61,14 +63,11 @@ class Command(BaseCommand):
 
         self.create_schema_if_not_exists(schema_name)
 
+        project = self.get_project(project_id, feature_type_id)
+
         if mode == 'Projet':
 
-            # Ensure that either 'project_id' or 'feature_type_id' is provided in 'Projet' mode
-            if not project_id and not feature_type_id:
-                raise CommandError("You must provide either a 'project_id' or a 'feature_type_id' in 'Projet' mode.")
-
-            project = self.get_project(project_id, feature_type_id)
-            view_name = f'project_{project.id}'
+            view_name = f"v_{self.safe_view_name(project.slug)}"
             # If deleting a custom field, drop the table, then try to create again
             if deleted_cf_id is not None:
                 self.drop_existing_view(schema_name, view_name)
@@ -76,8 +75,12 @@ class Command(BaseCommand):
             # Get all feature type ids inside the project
             feature_type_ids = list(FeatureType.objects.filter(project=project).values_list('id', flat=True))
 
-            # Prepare a string of ids to pass to the sql template
-            feature_type_ids_str = ', '.join(map(str, feature_type_ids))
+            if feature_type_ids:
+                # Prepare a string of ids to pass to the sql template
+                feature_type_ids_str = ', '.join(map(str, feature_type_ids))
+            else:
+                logger.info(f"No feature type found for project {project.slug}")
+                return
 
             # Retrieve custom fields specific to this project's feature types
             try:
@@ -91,11 +94,12 @@ class Command(BaseCommand):
 
         elif mode == 'Type' :
 
-            # Ensure that 'feature_type_id' is provided in 'Type' mode
-            if not feature_type_id:
-                raise CommandError("You must provide a 'feature_type_id' in 'Type' mode.")
+            # On feature type deletion, the slug is accessible in the signal but not within the command, so it's passed as an argument.
+            if not feature_type_slug:
+                # In other cases, such as custom field signals, the slug isn't directly available, so the ID is generally used instead.
+                feature_type_slug = self.get_feature_type(feature_type_id).slug
 
-            view_name = f'feature_type_{feature_type_id}'
+            view_name = f"v_{self.safe_view_name(feature_type_slug)}__{self.safe_view_name(project.slug)}"
 
             if is_ft_deletion:
                 # Generate SQL to delete the view if it exists
@@ -134,6 +138,13 @@ class Command(BaseCommand):
         except Exception as e:
             logger.error(f"Error creating schema {schema_name}: {e}")
             raise CommandError(f"Failed to create schema: {str(e)}")
+        
+    def safe_view_name(self, slug):
+        parts = slug.split('-', 1)
+        if parts[0].isdigit():
+            return f"{parts[1].replace('-', '_')}"
+        return slug.replace('-', '_')
+
 
     def get_custom_fields(self, feature_type_id, deleted_cf_id):
         customFields = CustomField.objects.filter(feature_type__pk=feature_type_id).values()
