@@ -52,7 +52,7 @@ class Command(BaseCommand):
         project_id = options['project_id']
         mode = options['mode'] or 'Type'
         deleted_cf_id = options['deleted_cf_id']
-        schema_name = options['schema_name'] or 'Data'
+        schema_name = options['schema_name'] or 'data'
 
         # Specify the feature fields to display in the view
         feature_fields_selection = ['feature_id', 'title', 'description', 'geom', 'project_id', 'feature_type_id', 'status']
@@ -67,7 +67,7 @@ class Command(BaseCommand):
 
         if mode == 'Projet':
 
-            view_name = self.safe_view_name(project.slug)
+            view_name = f"v_{self.safe_view_name(project.slug)}"
             # If deleting a custom field, drop the table, then try to create again
             if deleted_cf_id is not None:
                 self.drop_existing_view(schema_name, view_name)
@@ -99,7 +99,7 @@ class Command(BaseCommand):
                 # In other cases, such as custom field signals, the slug isn't directly available, so the ID is generally used instead.
                 feature_type_slug = self.get_feature_type(feature_type_id).slug
 
-            view_name = f"{self.safe_view_name(feature_type_slug)}__{self.safe_view_name(project.slug)}"
+            view_name = f"v_{self.safe_view_name(feature_type_slug)}__{self.safe_view_name(project.slug)}"
 
             if is_ft_deletion:
                 # Generate SQL to delete the view if it exists
