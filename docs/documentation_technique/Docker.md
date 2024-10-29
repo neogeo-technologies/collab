@@ -16,8 +16,8 @@ L'image Docker de base possède ces variables de configuration :
 * `AUTOMATIC_VIEW_CREATION_MODE`, default=`"Type"`
   Le mode de création des vues SQL créées automatiquement, soit 'Projet' ou 'Type'
 
-* `AUTOMATIC_VIEW_SCHEMA_NAME`, default=`"auto_view"`
-  Le nom du schema où sont créées automatiquement les vues SQL (par défaut 'data')
+* `AUTOMATIC_VIEW_SCHEMA_NAME`, default=`"Data"`
+  Le nom du schema où sont créées automatiquement les vues SQL (par défaut 'Data')
 
 * `CSRF_TRUSTED_ORIGINS`, default=`""`
   Liste des domaines externes autorisés pour les requêtes sécurisées contre les attaques CSRF.  

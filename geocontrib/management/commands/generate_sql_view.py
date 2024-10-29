@@ -52,7 +52,7 @@ class Command(BaseCommand):
         project_id = options['project_id']
         mode = options['mode'] or 'Type'
         deleted_cf_id = options['deleted_cf_id']
-        schema_name = options['schema_name'] or 'data'
+        schema_name = options['schema_name'] or 'Data'
 
         # Specify the feature fields to display in the view
         feature_fields_selection = ['feature_id', 'title', 'description', 'geom', 'project_id', 'feature_type_id', 'status']
