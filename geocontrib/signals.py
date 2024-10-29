@@ -92,11 +92,61 @@ def create_symetrical_relation(sender, instance, created, **kwargs):
 #     for instance in related:
 #         instance.delete()
 
-@receiver(models.signals.pre_save, sender='geocontrib.FeatureType')
+@receiver(models.signals.post_delete, sender='geocontrib.CustomField')
 @disable_for_loaddata
-def set_slug_on_create(sender, instance, **kwargs):
-    if not instance.slug:
-        instance.slug = slugify(f"{instance.pk}-{instance.title}")
+def delete_custom_field_in_sql_view(sender, instance, **kwargs):
+    if instance:
+        call_command('generate_sql_view',
+            mode=settings.AUTOMATIC_VIEW_CREATION_MODE,
+            schema_name=settings.AUTOMATIC_VIEW_SCHEMA_NAME,
+            feature_type_id=instance.feature_type_id,
+            deleted_cf_id=instance.id
+        )
+
+@receiver(models.signals.post_save, sender='geocontrib.CustomField')
+@disable_for_loaddata
+def update_sql_view(sender, instance, created, **kwargs):
+    if instance:
+        call_command('generate_sql_view',
+            mode=settings.AUTOMATIC_VIEW_CREATION_MODE,
+            schema_name=settings.AUTOMATIC_VIEW_SCHEMA_NAME,
+            feature_type_id=instance.feature_type_id
+        )
+
+@receiver(models.signals.post_delete, sender='geocontrib.FeatureType')
+@disable_for_loaddata
+def delete_sql_view(sender, instance, **kwargs):
+    if instance:
+        call_command('generate_sql_view',
+            mode=settings.AUTOMATIC_VIEW_CREATION_MODE,
+            schema_name=settings.AUTOMATIC_VIEW_SCHEMA_NAME,
+            feature_type_id=instance.id,
+            feature_type_slug=instance.slug,
+            project_id=instance.project.id,
+            is_ft_deletion=True
+        )
+
+
+@receiver(models.signals.post_save, sender='geocontrib.FeatureType')
+@disable_for_loaddata
+def slugify_feature_type_and_create_or_update_sql_view(sender, instance, created, **kwargs):
+    # Définir le slug si l'instance est nouvellement créée
+    if created:
+        instance.slug = slugify("{}-{}".format(instance.pk, instance.title))
+        instance.save()
+    
+    # Si un champ a été mis à jour ou que l'instance a été créée
+    if instance:
+        update_fields = kwargs.get('update_fields', None)
+        # If no fields were updated in feature_type, there is no need to update the view.
+        # Changes could be in customField forms, which already trigger a view update via their own signal (handled above).
+        if created or update_fields:
+            call_command('generate_sql_view',
+                mode=settings.AUTOMATIC_VIEW_CREATION_MODE,
+                schema_name=settings.AUTOMATIC_VIEW_SCHEMA_NAME,
+                feature_type_id=instance.id,
+                project_id=instance.project.id
+            )
 
 
 @receiver(models.signals.post_save, sender='geocontrib.Project')
@@ -206,56 +256,6 @@ def create_event_on_project_creation(sender, instance, created, **kwargs):
 def setUser(user):
     user = user._wrapped if hasattr(user,'_wrapped') else user
     return user
-
-
-@receiver(models.signals.post_delete, sender='geocontrib.CustomField')
-@disable_for_loaddata
-def delete_custom_field_in_sql_view(sender, instance, **kwargs):
-    if instance:
-        call_command('generate_sql_view',
-            mode=settings.AUTOMATIC_VIEW_CREATION_MODE,
-            schema_name=settings.AUTOMATIC_VIEW_SCHEMA_NAME,
-            feature_type_id=instance.feature_type_id,
-            deleted_cf_id=instance.id
-        )
-
-@receiver(models.signals.post_save, sender='geocontrib.CustomField')
-@disable_for_loaddata
-def update_sql_view(sender, instance, created, **kwargs):
-    if instance:
-        call_command('generate_sql_view',
-            mode=settings.AUTOMATIC_VIEW_CREATION_MODE,
-            schema_name=settings.AUTOMATIC_VIEW_SCHEMA_NAME,
-            feature_type_id=instance.feature_type_id
-        )
-
-@receiver(models.signals.post_delete, sender='geocontrib.FeatureType')
-@disable_for_loaddata
-def delete_sql_view(sender, instance, **kwargs):
-    if instance:
-        call_command('generate_sql_view',
-            mode=settings.AUTOMATIC_VIEW_CREATION_MODE,
-            schema_name=settings.AUTOMATIC_VIEW_SCHEMA_NAME,
-            feature_type_id=instance.id,
-            feature_type_slug=instance.slug,
-            project_id=instance.project.id,
-            is_ft_deletion=True
-        )
-
-@receiver(models.signals.post_save, sender='geocontrib.FeatureType')
-@disable_for_loaddata
-def create_or_update_sql_view(sender, instance, created, **kwargs):
-    if instance:
-        update_fields = kwargs.get('update_fields', None)
-        # If no fields were updated in feature_type, there is no need to update the view.
-        # Changes could be in customField forms, which already trigger a view update via their own signal (handled above).
-        if created or update_fields:
-            call_command('generate_sql_view',
-                mode=settings.AUTOMATIC_VIEW_CREATION_MODE,
-                schema_name=settings.AUTOMATIC_VIEW_SCHEMA_NAME,
-                feature_type_id=instance.id,
-                project_id=instance.project.id
-            )
 
 
 @receiver(models.signals.post_save, sender='geocontrib.Feature')
