@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.gis import admin
 from django.contrib.postgres.aggregates import StringAgg
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
 from django.db import connections
 from django.db.models import CharField, OuterRef, Subquery, F
 from django.forms import formset_factory
@@ -38,6 +39,7 @@ from geocontrib.models import FeatureLink
 from geocontrib.models import FeatureType
 from geocontrib.models import ImportTask
 from geocontrib.models import PreRecordedValues
+from geocontrib.models import Project
 from geocontrib.tasks import task_geojson_processing
 
 
@@ -81,14 +83,23 @@ class CustomFieldTabular(admin.TabularInline):
 
 class FeatureTypeAdmin(admin.ModelAdmin):
     """
-    Admin interface for managing `FeatureType` models with custom functionality for PostgreSQL view creation.
+    Admin interface for managing `FeatureType` models with two custom functionality :
+        1.  for PostgreSQL automatic views generation of all feature types (per type or project)
+        2.  for PostgreSQL view creation of a single feature type with a customization form.
 
     This admin class provides:
-    - A custom form (`FeatureTypeAdminForm`) for managing `FeatureType` instances.
-    - Inline editing of associated `CustomField` models through `CustomFieldTabular`.
-    - A custom change form template that includes options for creating PostgreSQL views.
-    - Custom URL routing for creating PostgreSQL views associated with `FeatureType` models.
-    - Methods for handling the creation of PostgreSQL views, including form processing, SQL execution, and error handling.
+    ° Common to both functionality:
+        - Custom URL routing for creating PostgreSQL views associated with `FeatureType` models.
+
+    ° For PostgreSQL automatic views:
+        - A method `changelist_view` to add the button inside feature type list page
+        - A method `generate_all_views` to handle all views generation
+
+    ° For PostgreSQL view creation:
+        - A custom form (`FeatureTypeAdminForm`) for managing `FeatureType` instances.
+        - Inline editing of associated `CustomField` models through `CustomFieldTabular`.
+        - A custom change form template that includes options for creating PostgreSQL views.
+        - Methods for handling the creation of PostgreSQL views, including form processing, SQL execution, and error handling.
     """
     form = FeatureTypeAdminForm # Custom form for `FeatureType` model management.
     inlines = (
@@ -101,6 +112,52 @@ class FeatureTypeAdmin(admin.ModelAdmin):
 
     delete_selected.short_description = 'Supprimer les éléments sélectionnés de la base de données' # Description for the bulk delete action
 
+    def get_urls(self):
+        """
+        Adds a custom URL for automatic views generation and for PostgreSQL view creation.
+        """
+        urls = super().get_urls()  # Default admin URLs
+        my_urls = [
+            # Custom view creation URL
+            path(
+                '<int:feature_type_id>/create-postgres-view/', 
+                self.admin_site.admin_view(self.create_postgres_view),
+                name='create_postgres_view'),
+            # Automatic views generation url
+            path('generate_all_views/', self.admin_site.admin_view(self.generate_all_views), name="generate_all_views"),
+        ]
+        return my_urls + urls  # Combine with default URLs
+    
+    ########################## Automatic views generation ##########################
+    def generate_all_views(self, request):
+        """
+        Handles the generation of all automatic views according to env configuration
+        """
+        try:
+            mode = getattr(settings, 'AUTOMATIC_VIEW_CREATION_MODE', None) or 'Type'
+            schema_name = getattr(settings, 'AUTOMATIC_VIEW_SCHEMA_NAME', None) or 'data'
+
+            if mode == 'Projet':
+                for project in Project.objects.all():
+                    call_command('generate_sql_view', mode='Projet', project_id=project.id, schema_name=schema_name)
+            else:
+                for feature_type in FeatureType.objects.all():
+                    call_command('generate_sql_view', mode='Type', feature_type_id=feature_type.id, schema_name=schema_name)
+            self.message_user(request, f"Les vues par { 'projet' if mode == 'Projet' else 'type de signalement'} ont été générées avec succès dans le schéma {schema_name}.", level=messages.SUCCESS)
+        except Exception as e:
+            self.message_user(request, f"Erreur lors de l'exécution de la commande : {str(e)}", level=messages.ERROR)
+        
+        return redirect("..")  # Redirige vers la page précédente (liste des feature types)
+
+    def changelist_view(self, request, extra_context=None):
+        """
+        Add the automatic view generation bouton in the feature type list
+        """
+        extra_context = extra_context or {}
+        extra_context['custom_button'] = True
+        return super().changelist_view(request, extra_context=extra_context)
+
+    ################### Single feature type custom view creation ###################
     def get_readonly_fields(self, request, obj=None):
         """
         Returns a list of fields that should be read-only based on the edit status of the object.
@@ -108,19 +165,6 @@ class FeatureTypeAdmin(admin.ModelAdmin):
         if obj:
             return self.readonly_fields + ('geom_type', )
         return self.readonly_fields
-
-    def get_urls(self):
-        """
-        Adds a custom URL for PostgreSQL view creation.
-        """
-        urls = super().get_urls()  # Default admin URLs
-        my_urls = [
-            path(
-                '<int:feature_type_id>/create-postgres-view/',  # Custom view creation URL
-                self.admin_site.admin_view(self.create_postgres_view),
-                name='create_postgres_view'),
-        ]
-        return my_urls + urls  # Combine with default URLs
 
     def pop_deleted_forms(self, cleaned_data):
         """
@@ -243,27 +287,6 @@ class FeatureTypeAdmin(admin.ModelAdmin):
 
         # Render the template with the form for creating the PostgreSQL view
         return TemplateResponse(request, "admin/geocontrib/create_postrges_view_form.html", context)
-
-
-def to_draft(modeladmin, request, queryset):
-    for e in queryset:
-        e.change_status('draft')
-to_draft.short_description = "Changer status à Brouillon"
-
-def to_pending(modeladmin, request, queryset):
-    for e in queryset:
-        e.change_status('pending')
-to_pending.short_description = "Changer status à 'En attente de publication'"
-
-def to_published(modeladmin, request, queryset):
-    for e in queryset:
-        e.change_status('published')
-to_published.short_description = "Changer status à Publié"
-
-def to_archived(modeladmin, request, queryset):
-    for e in queryset:
-        e.change_status('archived')
-to_archived.short_description = "Changer status à Archivé"
 
 
 class FeatureAdmin(admin.ModelAdmin):

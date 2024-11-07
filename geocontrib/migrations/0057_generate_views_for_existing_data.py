@@ -5,16 +5,17 @@ from django.core.management import call_command
 from django.conf import settings
 
 def generate_views_for_existing_data(apps, schema_editor):
-    mode = getattr(settings, 'AUTOMATIC_VIEW_CREATION_MODE', 'Type')
+    mode = getattr(settings, 'AUTOMATIC_VIEW_CREATION_MODE', None) or 'Type'
+    schema_name = getattr(settings, 'AUTOMATIC_VIEW_SCHEMA_NAME', None) or 'data'
 
     if mode == 'Projet':
         Project = apps.get_model('geocontrib', 'Project')
         for project in Project.objects.all():
-            call_command('generate_sql_view', mode='Projet', project_id=project.id)
+            call_command('generate_sql_view', mode='Projet', project_id=project.id, schema_name=schema_name)
     else:
         FeatureType = apps.get_model('geocontrib', 'FeatureType')
         for feature_type in FeatureType.objects.all():
-            call_command('generate_sql_view', mode='Type', feature_type_id=feature_type.id)
+            call_command('generate_sql_view', mode='Type', feature_type_id=feature_type.id, schema_name=schema_name)
 
 
 class Migration(migrations.Migration):
