@@ -240,7 +240,8 @@ Pour garantir la stabilité et la qualité de l'application, vous pouvez exécut
 pip install -r requirements-dev.txt
 ```
 
-- Certains tests, en particulier ceux liés aux imports, nécessitent que Celery soit activé. Assurez-vous que Celery est en cours d'exécution avant d'exécuter ces tests.
+- Les tests d'import nécessitent un worker Celery spécifique à l'environnement de test. Assurez-vous qu'aucun worker Celery n'est actif sur votre machine avant de lancer ces tests.
+
 
 ### Exécution des tests
 
