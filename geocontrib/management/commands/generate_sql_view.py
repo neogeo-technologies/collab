@@ -12,6 +12,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+schema_comment = "Schema created automatically by geocontrib"
+
 class Command(BaseCommand):
     """
     This command generates, modifies, or deletes a PostgreSQL view based on a FeatureType or Project.
@@ -129,15 +131,40 @@ class Command(BaseCommand):
 
     def create_schema_if_not_exists(self, schema_name):
         """
-        Create the schema if it doesn't already exist.
+        Create the schema if it doesn't already exist and add a comment to retrieve it if schema_name changes.
+        If other schemas containing the comment exist under different names, recreate it with the new schema name.
         """
-        sql = f"CREATE SCHEMA IF NOT EXISTS {schema_name};"
+
+        # SQL queries
+        sql_find_existing_schemas = f"""
+            SELECT nspname 
+            FROM pg_namespace 
+            WHERE obj_description(oid) = '{schema_comment}';
+        """
+        sql_create_schema = f"CREATE SCHEMA IF NOT EXISTS {schema_name};"
+        sql_add_comment = f"COMMENT ON SCHEMA {schema_name} IS '{schema_comment}';"
+        
         try:
             with connections['default'].cursor() as cursor:
-                cursor.execute(sql)
+                # Check if a schema with the comment exists
+                cursor.execute(sql_find_existing_schemas)
+                existing_schemas = cursor.fetchall()
+
+                # Drop all schemas with a name that differs from current schema_name
+                for existing_schema in existing_schemas:
+                    if existing_schema[0] != schema_name:
+                        logger.info(f"Dropping schema '{existing_schema[0]}'")
+                        cursor.execute(f"DROP SCHEMA IF EXISTS {existing_schema[0]} CASCADE")
+
+                # Create (or recreate) the schema with the current name and add the comment
+                cursor.execute("BEGIN;")
+                cursor.execute(sql_create_schema)
+                cursor.execute(sql_add_comment)
+                cursor.execute("COMMIT;")
         except Exception as e:
-            logger.error(f"Error creating schema {schema_name}: {e}")
-            raise CommandError(f"Failed to create schema: {str(e)}")
+            cursor.execute("ROLLBACK;")
+            logger.error(f"Error managing schema {schema_name}: {e}")
+            raise CommandError(f"Failed to manage schema: {str(e)}")
         
     def safe_view_name(self, slug):
         parts = slug.split('-', 1)
