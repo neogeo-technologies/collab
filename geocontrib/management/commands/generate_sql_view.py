@@ -157,12 +157,9 @@ class Command(BaseCommand):
                         cursor.execute(f"DROP SCHEMA IF EXISTS {existing_schema_name} CASCADE")
 
                 # Create (or recreate) the schema with the current name and add the comment
-                cursor.execute("BEGIN;")
                 cursor.execute(sql_create_schema)
                 cursor.execute(sql_add_comment)
-                cursor.execute("COMMIT;")
         except Exception as e:
-            cursor.execute("ROLLBACK;")
             logger.error(f"Error managing schema {schema_name}: {e}")
             raise CommandError(f"Failed to manage schema: {str(e)}")
         
