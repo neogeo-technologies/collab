@@ -12,7 +12,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-schema_comment = "Schema created automatically by geocontrib"
 
 class Command(BaseCommand):
     """
@@ -63,7 +62,7 @@ class Command(BaseCommand):
         # Get all existing status choices by default
         status = (stat[0] for stat in Feature.STATUS_CHOICES)
 
-        self.create_schema_if_not_exists(schema_name)
+        self.create_schema_if_not_exists(schema_name, mode)
 
         project = self.get_project(project_id, feature_type_id)
 
@@ -129,32 +128,33 @@ class Command(BaseCommand):
         if its_alright:
             logger.info(f'Successfully created view {view_name}')
 
-    def create_schema_if_not_exists(self, schema_name):
+    def create_schema_if_not_exists(self, schema_name, mode):
         """
-        Create the schema if it doesn't already exist and add a comment to retrieve it if schema_name changes.
-        If other schemas containing the comment exist under different names, recreate it with the new schema name.
+        Create the schema if it doesn't already exist and add a comment to retrieve it if schema_name or mode changes.
+        If other schemas containing the comment exist under different names or modes, recreate it with the new schema name and mode.
         """
 
+        schema_comment = f"Schema created automatically by geocontrib in mode"
         # SQL queries
         sql_find_existing_schemas = f"""
-            SELECT nspname 
+            SELECT nspname, obj_description(oid) 
             FROM pg_namespace 
-            WHERE obj_description(oid) = '{schema_comment}';
+            WHERE obj_description(oid) LIKE '{schema_comment}%';
         """
         sql_create_schema = f"CREATE SCHEMA IF NOT EXISTS {schema_name};"
-        sql_add_comment = f"COMMENT ON SCHEMA {schema_name} IS '{schema_comment}';"
+        sql_add_comment = f"COMMENT ON SCHEMA {schema_name} IS '{schema_comment} {mode}';"
         
         try:
             with connections['default'].cursor() as cursor:
                 # Check if a schema with the comment exists
                 cursor.execute(sql_find_existing_schemas)
                 existing_schemas = cursor.fetchall()
-
-                # Drop all schemas with a name that differs from current schema_name
+                # Drop all schemas with a name that differs from current schema_name or a different mode
                 for existing_schema in existing_schemas:
-                    if existing_schema[0] != schema_name:
-                        logger.info(f"Dropping schema '{existing_schema[0]}'")
-                        cursor.execute(f"DROP SCHEMA IF EXISTS {existing_schema[0]} CASCADE")
+                    existing_schema_name, existing_comment = existing_schema
+                    if existing_schema_name != schema_name or f"mode {mode}" not in existing_comment:
+                        logger.info(f"Dropping schema '{existing_schema_name}'")
+                        cursor.execute(f"DROP SCHEMA IF EXISTS {existing_schema_name} CASCADE")
 
                 # Create (or recreate) the schema with the current name and add the comment
                 cursor.execute("BEGIN;")
