@@ -66,11 +66,12 @@ class RemoteUserMiddleware(object):
     def process_request(self, request):
         # Récupère l'identifiant de l'utilisateur à partir d'un header HTTP (HEADER_UID) envoyé par geOrchestra.
         sid_user_id = request.META.get(HEADER_UID)
-        logger.warning(request.headers)
-        logger.warning(request.user)
-        logger.warning(request.user.is_authenticated)
-        logger.warning(sid_user_id)
-        logger.warning(self.sso_setted(request))
+        logger.debug('MIDDLEWARE GEORCHESTRA AUTH')
+        logger.debug(request.headers)
+        logger.debug(request.user)
+        logger.debug(request.user.is_authenticated)
+        logger.debug(sid_user_id)
+        logger.debug(self.sso_setted(request))
 
         # Cas 1 : Déconnexion lorsque l'utilisateur est authentifié dans l'application
         # mais que le SSO n'est plus actif.
