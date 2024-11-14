@@ -47,7 +47,6 @@ class TokenAuthentication(BaseAuthentication):
             logger.error('authenticate from TokenAuthentification with custom_header')
             raw_token = custom_header.encode('ascii')
         else:
-            logger.error('authenticate from TokenAuthentification with Bearer')
             header = get_authorization_header(request)
             if header is None:
                 return None
