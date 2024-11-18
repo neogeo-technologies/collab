@@ -8,6 +8,7 @@ from geocontrib.models import FeatureType
 from geocontrib.models import Feature
 from geocontrib.models import Project
 
+import re
 import logging
 
 logger = logging.getLogger(__name__)
@@ -53,7 +54,7 @@ class Command(BaseCommand):
         project_id = options['project_id']
         mode = options['mode'] or 'Type'
         deleted_cf_id = options['deleted_cf_id']
-        schema_name = options['schema_name'] or 'data'
+        schema_name = self.sanitize_schema_name(options['schema_name'] or 'data')
 
         # Specify the feature fields to display in the view
         feature_fields_selection = ['feature_id', 'title', 'description', 'geom', 'project_id', 'feature_type_id', 'status']
@@ -153,7 +154,8 @@ class Command(BaseCommand):
                 for existing_schema in existing_schemas:
                     existing_schema_name, existing_comment = existing_schema
                     if existing_schema_name != schema_name or f"mode {mode}" not in existing_comment:
-                        logger.info(f"Dropping schema '{existing_schema_name}'")
+                        logger.warning(f"Dropping schema '{existing_schema_name}'")
+                        logger.debug(f"schema_name: '{schema_name}' | mode: '{mode}'")
                         cursor.execute(f"DROP SCHEMA IF EXISTS {existing_schema_name} CASCADE")
 
                 # Create (or recreate) the schema with the current name and add the comment
@@ -164,10 +166,48 @@ class Command(BaseCommand):
             raise CommandError(f"Failed to manage schema: {str(e)}")
         
     def safe_view_name(self, slug):
+        # Split the slug between the id and the title
         parts = slug.split('-', 1)
+        # Check that the first part is an id
         if parts[0].isdigit():
+            # Keep only the title
             return f"{parts[1].replace('-', '_')}"
         return slug.replace('-', '_')
+
+    def sanitize_schema_name(self, schema_name: str) -> str:
+        """
+        Nettoie un nom de schéma pour le rendre compatible avec PostgreSQL.
+        
+        - Supprime tous les guillemets (simples et doubles).
+        - Transforme le nom en minuscules.
+        - Remplace les tirets par des underscores.
+        - Supprime tous les caractères non autorisés par PostgreSQL.
+        - Si le nom commence par un chiffre, préfixe avec un underscore.
+        - Tronque à 63 caractères (limite de PostgreSQL).
+        
+        :param schema_name: Le nom du schéma à nettoyer.
+        :return: Un nom de schéma compatible avec PostgreSQL.
+        """
+        # Supprimer les guillemets simples et doubles
+        sanitized = schema_name.replace("'", "").replace('"', "")
+        
+        # Transformer en minuscules
+        sanitized = sanitized.lower()
+        
+        # Remplacer les tirets par des underscores
+        sanitized = sanitized.replace("-", "_")
+        
+        # Supprimer les caractères non autorisés (seuls les lettres, chiffres et underscores sont autorisés)
+        sanitized = re.sub(r"[^a-z0-9_]", "", sanitized)
+        
+        # Ajouter un underscore si le nom commence par un chiffre
+        if sanitized and sanitized[0].isdigit():
+            sanitized = f"_{sanitized}"
+        
+        # Tronquer à 63 caractères (limite de PostgreSQL)
+        sanitized = sanitized[:63]
+        
+        return sanitized
 
 
     def get_custom_fields(self, feature_type_id, deleted_cf_id):
