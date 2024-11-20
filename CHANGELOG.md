@@ -3,6 +3,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [5.4.8] - 2024-11-20
+
+### Correction
+
+- Redmine 18905 : Gestion du signin/signout erronée (plug-in Georchestra)
+
 ## [5.4.7] - 2024-09-23
 
 ### Corrections
