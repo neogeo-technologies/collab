@@ -3,12 +3,31 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [6.4.0] - 2024-XX-XX (non disponible)
+## [6.4.0] - 2024-11-28
 
 ### Evolutions
 
 - Redmine 22942 : Montée de version Postgre 12 > 16
 - Redmine 18861 : Montée de version Python 3.12 + django 4.2 + lib associées
+- Redmine 23375 : Création de vues pour les types de signalements générées automatiquement dans un schéma métier de la BD PostgreSQL
+- Redmine 23374 : Création d’un Web Component pour l’affichage de données issues de GéoContrib dans un site web tiers
+
+### Correctifs
+
+- Redmine 23007 : Bouton ajouter signalement visible pour multi-géométries
+- Redmine 21597 : Lien vers signalement avec id - erreur si position(offset) égale à 0
+- Redmine 23165 : Import CSV avec texte multiligne ne fonctionne pas
+
+
+### Environement variables
+
+- AUTOMATIC_VIEW_CREATION_MODE (default : 'type')
+-> Permet de choisir le mode de création de vues automatique
+-> valeurs possibles : 'type' ou 'projet'
+
+- AUTOMATIC_VIEW_SCHEMA_NAME (default : 'Data')
+-> Nom du schéma métier dans lequel vont être stockées les vues
+
 
 ### Processus de migration dans Docker pour la mise à jour de PostgreSQL
 
@@ -36,6 +55,7 @@ Tout d'abord il faut copier le dump conservé sur le serveur vers le conteneur d
 `docker cp ~/backup_geocontrib_dev_postgis11-2.5-alpine.dump dev_geocontrib-db_1:/tmp/`
 
     Ensuite on peut lancer la restauration: `docker exec -i dev_geocontrib-db_1 pg_restore -U geocontrib -d geocontrib --no-owner /tmp/backup_geocontrib_dev_postgis11-2.5-alpine.dump`
+
 
 ## [6.3.0] - 2024-09-20
 
