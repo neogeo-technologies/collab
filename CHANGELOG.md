@@ -31,31 +31,136 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Processus de migration dans Docker pour la mise à jour de PostgreSQL
 
-(Le nom des variables est à adapter à votre envioronnement.)
+(Le nom des variables est à adapter à votre environnement.)
 
-1. Faire un dump de la base de données pour restauration
-Afin de pouvoir restaurer les données, on a besoin d'un dump.
-Se connecter au serveur le cas échéant, identifier le conteneur de la base de données et créer un dump:
+#### 1. Création d'un backup
 
-    `docker exec -t dev_geocontrib-db_1 pg_dump -U geocontrib -F c -f ~/backup_geocontrib_dev_postgis11-2.5-alpine.dump geocontrib`
+- Éteindre tous les conteneurs :
+```sh
+docker-compose down
+```
+- Redémarrer uniquement le conteneur de la base de données :
+```sh
+docker-compose up -d geocontrib-db
+```
+- Créer un dump SQL de la base de données :
+```sh
+docker exec -t <nom-conteneur-postgis> pg_dump -U geocontrib -F p -f ./backup.sql geocontrib
+```
+- Déplacer le backup du conteneur vers un emplacement local avec un nom spécifique :
+```sh
+docker cp <nom-conteneur-postgis>:./backup.sql ./backup_geocontrib_recette_postgis_11.sql
+```
+- Vérifier le contenu du backup pour s'assurer qu'il contient bien des instructions SQL :
+```sh
+cat backup.sql
+```
+#### 2. Création d'un volume de backup
+Les données sont persistantes dans un volume Docker qui n'est pas compatible entre les versions de PostgreSQL. Ce volume doit être renommé pour conserver une copie de sécurité.
 
-2. Extinction conteneurs
- Dans un premier temps il faut éteindre les conteneurs en se placant dans le dossier contenant le docker-compose concernant l'environnement a migré, dans ce cas: cd /opt/geocontrib/dev
-Puis lancer la commande éteignant tous les conteneurs: docker-compose down
+- Éteindre les conteneurs :
+```sh
+docker-compose down
+```
+- Renommer le volume en le copiant dans un nouveau volume :  
+Adapter le nom des volumes selon la valeur présente dans le *docker-compose.yml.*  
+Attention, ces valeurs peuvent être surchargé par le *docker-compose.override.yml*.  
+Par exemple, sur notre recette dans le *docker-compose.yml*, on a geocontrib_db et dans le *docker-compose.override.yml* :   
+```yaml
+  geocontrib_db:
+      name: "geocontrib_db_${ENV_MODE}" 
+```
+Pour vérifier, on peut lister les volumes existants avec:
+```sh
+docker volume list
+```
+Le nom de notre volume sera dans cette exemple geocontrib_db_recette et nous pouvons nommer la copie de sauvegarde du volume (conserver le suffixe à la fin) : geocontrib_db_old_recette  
+La commande résultante est:
+```sh
+docker run --rm -v geocontrib_db_recette:/source -v geocontrib_db_old_recette:/destination alpine ash -c "cd /source && cp -a . /destination"
+```
+#### 3. Vérification de la sauvegarde
+Vérifier les données dans le volume copié
+- Pour utiliser le volume de sauvegarde, modifiez temporairement le fichier *docker-compose.yml*, par exemple :   
+```yaml
+volumes:
+  geocontrib_db:
+  geocontrib_db_old: # ajouter le volume de sauvegarde pour qu'il soit créé
+  geocontrib_media:
+  geocontrib_static:
 
-3. Suppression volume geocontrib_db
-On liste les volumes pour trouver le volume geocontrib_db de la dev: `docker volume ls`
-Ici il s'agit de "geocontrib_db_dev", que l'on supprime avec `docker volume rm geocontrib_db_dev`
+postgres:
+  [...]
+  volumes:
+    - geocontrib_db_old:/var/lib/postgresql/data/ # changez le nom du volume utilisé par la BDD
+```
 
-4. Re-création des conteneurs
-`docker-compose up -d`
+- Modifier les volumes dans le *docker-compose.override.yml* le cas échéant:
+```yaml
+volumes:
+  geocontrib_db:
+    name: "geocontrib_db_${ENV_MODE}" 
+  geocontrib_db_old:
+    name: "geocontrib_db_old_${ENV_MODE}" 
+```
+- [Uniquement si l'ancien volume était utilisé par un PostgreSQL 11] La version actuelle de GC (6.4) n'est pas compatible avec PostgreSQL 11 en raison d'une incompatibilité avec la version de Django. Si cette version est utilisée, pour tester le volume de sauvegarde, il est nécessaire de modifier la version dans le fichier *.env* comme suit :
+```yaml
+FRONT_VERSION=6.3.0
+GEOCONTRIB_VERSION=6.3.0
+```
+- Redémarrer les conteneurs pour procéder à la vérification dans l'application
+```sh
+docker-compose up -d
+```
+Une fois la vérification terminée, rétablissez les fichiers dans leur état d'origine.
 
-5. Restauration données
-Tout d'abord il faut copier le dump conservé sur le serveur vers le conteneur de base de données:
-`docker cp ~/backup_geocontrib_dev_postgis11-2.5-alpine.dump dev_geocontrib-db_1:/tmp/`
+- Supprimer l'ancien volume après validation :
+```sh
+docker volume rm geocontrib_db_recette
+```
 
-    Ensuite on peut lancer la restauration: `docker exec -i dev_geocontrib-db_1 pg_restore -U geocontrib -d geocontrib --no-owner /tmp/backup_geocontrib_dev_postgis11-2.5-alpine.dump`
+#### 3. Changement de version et restauration
+- Mettre à jour la version de PostGIS dans le fichier *.env* :
+```yaml
+POSTGIS_VERSION=16-3.5-alpine
+```
+- Ajouter ou mettre à jour la variable suivante dans le fichier *.env* :
+```yaml
+CSRF_TRUSTED_ORIGINS=https://geocontrib.recette.neogeo.fr
+```
+Si le fichier d'environnement est versionné en utilisant GIT, modifier le fichier sur le dépot de préférence
 
+- Pour que la nouvelle variable soit prise en compte, mettre à jour le fichier *docker-compose.yml* en faisant un ```git pull``` si nécessaire, avec l'utilisateur ```gitlab-runner```, comme les droits lui sont attribués pour l'éxécution de CI:
+```sh
+sudo -u gitlab-runner git pull
+```
+
+- Redémarrer uniquement le conteneur de la base de données :
+```sh
+docker-compose up -d geocontrib-db
+```
+- Copier le backup SQL dans le conteneur de la base de données :
+```sh
+docker cp ./backup_geocontrib_recette_postgis_11.sql geocontrib-db:/tmp/backup.sql
+```
+- Restaurer les données dans la nouvelle base de données :
+```sh
+docker exec -i <nom-conteneur-postgis> sh -c "psql -U geocontrib -d geocontrib < /tmp/backup.sql"
+```
+
+#### 4. Finalisation et nettoyage
+- Redémarrer les autres conteneurs :
+```sh
+docker-compose up -d
+```
+- Vérifier les logs :
+```sh
+docker-compose logs --tail 100 --timestamps
+```
+- Supprimer l'ancien volume de sauvegarde si tout fonctionne correctement :
+```sh
+docker volume rm geocontrib_db_old_recette
+```
 
 ## [6.3.0] - 2024-09-20
 
