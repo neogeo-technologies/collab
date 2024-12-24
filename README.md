@@ -13,7 +13,7 @@ Celle-ci n'est plus disponible dans le répertoire /docs du dépôt à partir de
 
 La version stable de GéoContrib est une version qui a été testée et validée par la communauté GéoContrib. Nous recommandons l'installation de cette version dans le cas d'une utilisation optimale et sans instabilité. 
 
-La version actuellement stabilisée est la version **6.4.0**.
+La version actuellement stabilisée est la version **6.4.1**.
 
 ## Installation
 
@@ -302,14 +302,16 @@ Notre système de notifications est conçu pour informer les utilisateurs des é
 #### - Notifications groupées
 - **Objectif** : Informer tous les abonnés des différents projets sur les événements variés tels que les mises à jour, les suppressions et les créations de signalement, les évolutions du projet, ainsi que la publication de commentaires ou de pièces jointes.
 - **Fonctionnement** : Les notifications sont regroupées grâce aux instances `StackedEvent`, crées par un Signal
+- **Filtre** : Uniqement les événements pour les signalements dont le statut n'est pas à brouillon au moment de la génération de la notification sont envoyés.
 - **Déclencheur** : Les notifications sont regroupées grâce aux instances `StackedEvent` et envoyées périodiquement selon la configuration de la tâche périodique associée.
 - **Caractéristiques Configurables** :
-  - **Niveau d'envoi des notifications** : Les administrateurs peuvent configurer l'envoi des notifications pour les documents clés à un niveau globale ou par projet. Ceci est géré par le champ `per_project` dans le modèle `NotificationModel`.
+  - **Niveau d'envoi des notifications** : Les administrateurs peuvent configurer l'envoi des notifications groupées à un niveau globale ou par projet. Ceci est géré par le champ `per_project` dans le modèle `NotificationModel`.
   - **Désactivation des notifications** : Vous pouvez désactiver les notifications pour un type de signalement via l'interface d'administration ou la configuration d'affichage de signalement dans l'application frontend. L'envoi des notifications de publication de documents clés ne sont pas impactés par ce pramétrage.
 
 #### - Notifications de publications de documents clés
 - **Objectif** : Informer tous les abonnés des différents projets sur les publications importantes de documents au sein de leurs projets.
 - **Fonctionnement** : Les notifications sont regroupées grâce aux instances `StackedEvent` spécifiques, en utilisant la propriété `only_key_document`. Les piles d'événements sont crées par un Signal, lors de la publication d'une pièce jointe avec le paramètre `is_key_document`.
+- **Filtre** : Uniqement les événements pour les signalements dont le statut n'est pas à brouillon au moment de la génération de la notification sont envoyés.
 - **Déclencheur** : Les notifications sont envoyées périodiquement selon la configuration de la tâche périodique associée.
 - **Caractéristiques Configurables** :
   - **Activation des Notifications** : Les administrateurs peuvent activer ou désactiver les notifications pour les documents clés au niveau d'un type de signalement. Ceci est géré par le champ booléen `enable_key_doc_notif` dans le modèle `FeatureType`.
