@@ -336,8 +336,9 @@ class FeatureEventSerializer(serializers.ModelSerializer):
 class StackedEventSerializer(serializers.ModelSerializer):
     """
     Serializer for StackedEvent objects. This serializer dynamically groups and serializes events 
-    associated with a StackedEvent instance. The events are grouped by feature type and feature title,
-    and each group is further processed to include only those events whose feature types have notifications enabled.
+    associated with a StackedEvent instance. Events related to features with a draft status are excluded.
+    The events are grouped by feature type and feature title, and each group is further processed
+    to include only those events whose feature types have notifications enabled.
 
     The serializer performs several key operations:
     - Retrieves and groups all events related to the stacked event instance.
@@ -362,8 +363,8 @@ class StackedEventSerializer(serializers.ModelSerializer):
 
         # Gather all unique feature IDs from the events to minimize database queries
         feature_ids = {event.feature_id for event in events if event.feature_id}
-        # Retrieve all corresponding Feature objects in a single query, including their types
-        features = Feature.objects.filter(feature_id__in=feature_ids).select_related('feature_type')
+        # Retrieve all corresponding Feature objects in a single query, excluding feature with draft status, including their types
+        features = Feature.objects.filter(feature_id__in=feature_ids).exclude(status='draft').select_related('feature_type')
         # Map feature IDs to Feature objects for quick access
         feature_map = {feature.feature_id: feature for feature in features}
 
@@ -383,8 +384,9 @@ class StackedEventSerializer(serializers.ModelSerializer):
             # Get notification settings with default fallback if slug is not in the dictionary
             notification_settings = slug_to_title_and_notification.get(feature_type_slug, ('Type inconnu', False))
 
-            # Check if feature_type slug is found and if notifications are not disabled in case it is not a key document
-            if feature_type_slug and (event.object_type == 'key_document' or not notification_settings[1]):
+            # Check if feature is not excluded (if draft) and if feature_type slug is found
+            # and if notifications are not disabled, only in case it is not a key document
+            if event.feature_id in feature_map and feature_type_slug and (event.object_type == 'key_document' or not notification_settings[1]):
                 # Assign a title from the feature map or use 'Élément inconnu' if missing
                 feature_title = feature_map[event.feature_id].title if event.feature_id in feature_map else 'Élément inconnu'
                 # Use the feature type title from the map, fallback to 'Type inconnu' if not found
