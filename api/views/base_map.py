@@ -281,7 +281,7 @@ class BaseMapViewset(
         if project_slug:
             queryset = queryset.filter(project__slug=project_slug)
 
-        return queryset
+        return queryset.order_by('id')
 
     @swagger_auto_schema(
         tags=["base-maps"],
