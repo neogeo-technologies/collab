@@ -155,16 +155,8 @@ class UserInfoView(views.APIView):
     def get(self, request):
         user = request.user
 
-        # Check if the user is already authenticated in Django
-        if user and not user.is_anonymous:
-            data = {
-                "detail": f"{user.username} session is enabled",
-                "user": UserSerializer(user).data
-            }
-            return Response(data=data, status=status.HTTP_200_OK)
-
         # If the user is not authenticated, check the OGS session if configured
-        elif settings.SSO_OGS_SESSION_URL:
+        if settings.SSO_OGS_SESSION_URL:
             session_id = request.COOKIES.get('sessionid')
 
             # If a session cookie for OGS is found
@@ -188,6 +180,18 @@ class UserInfoView(views.APIView):
                             "user": UserSerializer(user).data
                         }
                         return Response(data=data, status=status.HTTP_200_OK)
+                elif response.status_code == 401:
+                    # Déconnexion lorsque l'utilisateur est authentifié dans l'application mais que le SSO n'est plus actif.
+                    logout(request)
+                    logger.warning('USER LOGGED OUT due to SSO logout')
+        # Check if the user is already authenticated in Django
+        elif user and not user.is_anonymous:
+            data = {
+                "detail": f"{user.username} session is enabled",
+                "user": UserSerializer(user).data
+            }
+            return Response(data=data, status=status.HTTP_200_OK)
+
         
         # If no authentication method is available, raise an error
         raise NotAuthenticated()
