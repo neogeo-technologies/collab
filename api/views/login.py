@@ -174,7 +174,10 @@ class UserInfoView(views.APIView):
                         user, created = User.objects.get_or_create(username=username)
                         if created:
                             user.save()
-                        login(request, user)
+                        # If the username returned by OGS differs from the current user 
+                        # (which would be anonymous if no user is logged in) then log in the new user
+                        if user != request.user:
+                            login(request, user)
                         data = {
                             "detail": f"{user.username} session is enabled",
                             "user": UserSerializer(user).data
@@ -193,7 +196,7 @@ class UserInfoView(views.APIView):
             return Response(data=data, status=status.HTTP_200_OK)
 
         
-        # If no authentication method is available, raise an error
+        # If the user could not be authenticated, raise an error
         raise NotAuthenticated()
 
 class LogoutView(views.APIView):
