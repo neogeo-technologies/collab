@@ -155,16 +155,8 @@ class UserInfoView(views.APIView):
     def get(self, request):
         user = request.user
 
-        # Check if the user is already authenticated in Django
-        if user and not user.is_anonymous:
-            data = {
-                "detail": f"{user.username} session is enabled",
-                "user": UserSerializer(user).data
-            }
-            return Response(data=data, status=status.HTTP_200_OK)
-
         # If the user is not authenticated, check the OGS session if configured
-        elif settings.SSO_OGS_SESSION_URL:
+        if settings.SSO_OGS_SESSION_URL:
             session_id = request.COOKIES.get('sessionid')
 
             # If a session cookie for OGS is found
@@ -182,14 +174,29 @@ class UserInfoView(views.APIView):
                         user, created = User.objects.get_or_create(username=username)
                         if created:
                             user.save()
-                        login(request, user)
+                        # If the username returned by OGS differs from the current user 
+                        # (which would be anonymous if no user is logged in) then log in the new user
+                        if user != request.user:
+                            login(request, user)
                         data = {
                             "detail": f"{user.username} session is enabled",
                             "user": UserSerializer(user).data
                         }
                         return Response(data=data, status=status.HTTP_200_OK)
+                elif response.status_code == 401:
+                    # Déconnexion lorsque l'utilisateur est authentifié dans l'application mais que le SSO n'est plus actif.
+                    logout(request)
+                    logger.warning('USER LOGGED OUT due to SSO logout')
+        # Check if the user is already authenticated in Django
+        elif user and not user.is_anonymous:
+            data = {
+                "detail": f"{user.username} session is enabled",
+                "user": UserSerializer(user).data
+            }
+            return Response(data=data, status=status.HTTP_200_OK)
+
         
-        # If no authentication method is available, raise an error
+        # If the user could not be authenticated, raise an error
         raise NotAuthenticated()
 
 class LogoutView(views.APIView):
