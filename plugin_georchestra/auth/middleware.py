@@ -68,16 +68,18 @@ class RemoteUserMiddleware(object):
         # Récupère l'identifiant de l'utilisateur à partir d'un header HTTP (HEADER_UID) envoyé par geOrchestra.
         sid_user_id = request.META.get(HEADER_UID)
 
+        # Si l'authentification SSO est activée, vérifie l'état de la session pour synchroniser la session GeoContrib.
+        # Sinon, l'utilisateur peut accéder à l'application en tant qu'utilisateur anonyme.
         if self.sso_setted(request):
             # Cas 1 : Déconnexion lorsque l'utilisateur est authentifié dans l'application
-            # mais que le SSO n'est plus actif.
+            # mais qu'il n'y a pas d'identifiant utilisateur envoyé par geOrchestra (la session n'est plus active)
             if not sid_user_id and request.user.is_authenticated:
                 logout(request)
                 logger.warning('USER LOGGED OUT due to SSO logout')
                 logger.warning(request.headers)
                 return  # Fin du traitement, l'utilisateur est déconnecté.
         
-            # Cas 2: Si le SSO est actif et qu'un identifiant utilisateur envoyé par geOrchestra est présent :
+            # Cas 2: Si un identifiant utilisateur envoyé par geOrchestra est présent :
             elif sid_user_id:
                 # Log pour le débogage : affiche l'identifiant de l'utilisateur récupéré.
                 logger.debug('HEADER_UID: {header_uid}, VALUE: {value}'.format(
@@ -89,9 +91,12 @@ class RemoteUserMiddleware(object):
                     # Recherche l'utilisateur correspondant à l'identifiant dans la base de données.
                     proxy_user = User.objects.get(username=sid_user_id)
                 except User.DoesNotExist as e:
-                    # Si l'utilisateur n'existe pas, log l'erreur et refuse l'accès.
+                    # Si l'utilisateur n'existe pas dans Geocntrib, log l'erreur
+                    # et interrompt la fonction pour accéder à GeoContrib en tant qu'utilisateur anonyme.
+                    # Aucune erreur n'est levée afin de permettre l'accès à un utilisateur connecté à GeoOrchestra mais non synchronisé dans GeoContrib
+                    # (cas où l'utilisateur GeoOrchestra n'a pas besoin d'éditer).
                     logger.debug(e)
-                    raise PermissionDenied()
+                    return
 
                 # Sanity Check: Si l'utilisateur connecté n'est pas celui envoyé par le proxy
                 # on déconnecte l'utilisateur en cours.
