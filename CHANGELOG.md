@@ -3,6 +3,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [6.4.2] - 2024-01-23
+
+### Correctifs
+- Redmine 24200 : Déconnexion OGS <-> GC
+- Redmine 25708 : Ordre des fonds de plan perdu à la modification d'une couche
+- Redmine 25837 : Plugin geOrchstra - Accès utilisateur non synchronisés dans GC
+
 ## [6.4.1] - 2024-12-24
 
 ### Correctifs
