@@ -6,7 +6,6 @@ import collections
 from datetime import date
 
 from django.db.models import Q
-from django.db import transaction
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.gis.geos import Polygon, Polygon, MultiPoint, MultiLineString, MultiPolygon
@@ -24,6 +23,7 @@ from rest_framework import status
 from rest_framework import views
 from rest_framework import viewsets
 from rest_framework.exceptions import ValidationError
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework_mvt.views import BaseMVTView
 from rest_framework.views import APIView
@@ -51,6 +51,7 @@ from geocontrib.models import FeatureLink
 from geocontrib.models import FeatureType
 from geocontrib.models import PreRecordedValues
 from geocontrib.models import Project
+from geocontrib.utils import apply_permissions_to_queryset
 
 
 User = get_user_model()
@@ -107,6 +108,11 @@ class FeatureView(
         # Raise an error if neither project_slug nor feature_type_slug is provided
         if not feature_type_slug and not project_slug:
             raise ValidationError(detail="Must provide parameter project__slug or feature_type__slug")
+
+        # Filter by status if provided
+        status_value = self.request.query_params.get('status__value')
+        if status_value:
+            queryset = queryset.filter(status=status_value)
 
         # Filter by a date range if 'from_date' is provided
         from_date = self.request.query_params.get('from_date')
@@ -235,6 +241,106 @@ class FeatureView(
         message = {"message": "Le signalement a été supprimé"}
         return Response(message, status=status.HTTP_200_OK)
 
+    @swagger_auto_schema(
+        operation_summary="Met à jour en masse le statut des signalements",
+        tags=["features"],
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                "status": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Le nouveau statut à appliquer aux signalements. Exemples : brouillon, en attente, publié, archivé.",
+                    example="published"
+                ),
+            },
+            required=["status"],
+            description="Charge utile JSON contenant le nouveau statut à appliquer"
+        ),
+        responses={
+            200: openapi.Response(
+                description="Réponse réussie, avec distinction entre succès et info",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "message": openapi.Schema(
+                            type=openapi.TYPE_STRING,
+                            description="Message de confirmation ou d'information",
+                            example="15 signalements mis à jour avec succès à 'publié'."
+                        ),
+                        "level": openapi.Schema(
+                            type=openapi.TYPE_STRING,
+                            description="Niveau de réponse (positive ou info)",
+                            enum=["positive", "info"],
+                            example="positive"
+                        ),
+                    },
+                ),
+            ),
+            400: openapi.Response(
+                description="Requête invalide ou champ manquant",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "error": openapi.Schema(
+                            type=openapi.TYPE_STRING,
+                            description="Message d'erreur indiquant pourquoi la requête a échoué",
+                            example="Champ 'status' manquant."
+                            )
+                        },
+                    ),
+                ),
+            }
+        )
+    @action(detail=False, methods=['post'], url_path='bulk-update-status')
+    def bulk_update_status(self, request):
+        """
+        Gère la mise à jour en masse du champ statut pour les signalements.
+        """
+        new_status = request.data.get('status')
+
+        # Vérifier que le statut est valide
+        if new_status not in ['draft', 'pending', 'published', 'archived']:
+            return Response(
+                {"error": f"Statut inconnu : '{new_status}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Vérifier si le champ "status" est manquant
+        if not new_status:
+            return Response(
+                {"error": "Le champ 'status' est requis."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Récupérer les signalements correspondant aux critères
+        queryset = self.get_queryset()
+
+        # Exclure les signalements avec déjà le nouveau statut
+        queryset = queryset.exclude(status=new_status)
+
+        # Appliquer les permissions
+        queryset = apply_permissions_to_queryset(request.user, queryset)
+
+        # Si le queryset est vide
+        if not queryset.exists():
+            return Response(
+                {
+                    "message": "Aucun signalement ne correspond aux critères pour être mis à jour.",
+                    "level": "info"  # Ajout d'un type pour différencier ce cas
+                },
+                status=status.HTTP_200_OK,  # Renvoyer un code 200 pour que le frontend reçoive le message
+            )
+
+        # Effectuer la mise à jour des signalements
+        updated_count = queryset.update(status=new_status)
+
+        return Response(
+            {
+                "message": f"{updated_count} signalements mis à jour avec succès à '{new_status}'.",
+                "level": "positive"  # Indique un succès dans le type
+            },
+            status=status.HTTP_200_OK,
+        )
 
 class FeatureTypeView(
         mixins.ListModelMixin,
@@ -301,9 +407,19 @@ class FeatureTypeView(
 
 class ProjectFeaturePaginated(generics.ListAPIView):
     """
-    Provide a paginated list of features for a specific project.
+    Provides a paginated list of features for a specific project.
+
+    Features:
+    - Paginated results by default, using `CustomPagination`.
+    - Filters by query parameters such as status, feature type, and title.
+
+    Query Parameters:
+    - `status__value`: Comma-separated list of statuses to filter features by.
+    - `feature_type_slug`: Comma-separated list of feature type slugs to filter by.
+    - `title`: A partial string to filter features by title (case-insensitive).
+    - `ordering`: Specifies the ordering of results. Defaults to '-created_on'.
+    - `output`: If set to 'geojson', uses GeoJSON serializers for the response.
     """
-    
     queryset = Project.objects.all()
     pagination_class = CustomPagination
     lookup_field = 'slug'
@@ -334,8 +450,8 @@ class ProjectFeaturePaginated(generics.ListAPIView):
         """
         Dynamically select the serializer class based on the output format.
         """
-        format = self.request.query_params.get('output')
-        if format and format == 'geojson':
+        output_format = self.request.query_params.get('output')
+        if output_format and output_format == 'geojson':
             if self.request.user.is_authenticated:
                 return FeatureDetailedAuthenticatedSerializer
             return FeatureDetailedSerializer
@@ -343,13 +459,13 @@ class ProjectFeaturePaginated(generics.ListAPIView):
 
     def get_queryset(self):
         """
-        Provide a customized queryset for the view based on the project slug.
+        Customize the queryset based on the project slug and apply ordering.
         """
         slug = self.kwargs.get('slug')
         project = get_object_or_404(Project, slug=slug)
-        # Ordering :
+        # Retrieve ordering from query parameters or use the default
         ordering = self.request.query_params.get('ordering') or '-created_on'
-        # Fallback ordering by feature_id in case dates are exactly the sames https://redmine.neogeo.fr/issues/23018
+        # Retrieve all available features for the project, respecting user permissions
         queryset = Feature.handy.availables(user=self.request.user, project=project).order_by(ordering, 'feature_id')
 
         # Optimize query performance with select_related

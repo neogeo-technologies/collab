@@ -212,7 +212,7 @@ urlpatterns = [
     ),
     path(
         'login-token/',
-        LoginByTokenView.as_view(), name='generate-token'
+        LoginByTokenView.as_view(), name='login-by-token'
     ),
 
     # deprecated
