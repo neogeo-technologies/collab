@@ -301,7 +301,14 @@ IDGO_VERIFY_CERTIFICATE = config('IDGO_VERIFY_CERTIFICATE', default=False)
 IDGO_LOGIN = config('IDGO_LOGIN', default='geocontrib')
 IDGO_PASSWORD = config('IDGO_PASSWORD', default='CHANGE_ME')
 
+# Customized cookie name to avoid conflict with SSO
 SESSION_COOKIE_NAME='geocontrib-session-id'
+# Django session cookie validation
+SESSION_COOKIE_AGE = 1800 # 30 minutes
+# Session expired if browser close
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+# Prolonger la session à chaque requête
+SESSION_SAVE_EVERY_REQUEST = True
 
 # Required to avoid error in swagger
 SWAGGER_SETTINGS = {
