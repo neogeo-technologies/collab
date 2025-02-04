@@ -61,7 +61,8 @@ CORE_MIDDLEWARE = [
     'django.contrib.auth.middleware.RemoteUserMiddleware',
 ]
 SSO_MIDDLEWARE = config('SSO_MIDDLEWARE', default='', cast=Csv())
-MIDDLEWARE = CORE_MIDDLEWARE + SSO_MIDDLEWARE
+SESSION_MIDDLEWARE = config('SESSION_MIDDLEWARE', default='', cast=Csv())
+MIDDLEWARE = CORE_MIDDLEWARE + SSO_MIDDLEWARE + SESSION_MIDDLEWARE
 
 ROOT_URLCONF = 'config.urls'
 TEMPLATES = [
@@ -303,14 +304,19 @@ IDGO_PASSWORD = config('IDGO_PASSWORD', default='CHANGE_ME')
 
 # Customized cookie name to avoid conflict with SSO
 SESSION_COOKIE_NAME='geocontrib-session-id'
-# Django session cookie validation
-SESSION_COOKIE_AGE = 1800 # 30 minutes
-# Session expired if browser close
+# Durée maximale d'une session : 24h (appliqué côté serveur)
+SESSION_COOKIE_AGE = 86400
+# Expiration automatique du cookie de session à la fermeture du navigateur
+# (Le cookie "sessionid" n'aura pas de date d'expiration visible dans le navigateur)
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
-# Prolonger la session à chaque requête
-SESSION_SAVE_EVERY_REQUEST = True
+# Ne pas prolonger la session à chaque requête
+# (Permet d'appliquer strictement la durée max et le timeout d'inactivité)
+SESSION_SAVE_EVERY_REQUEST = False
+# Timeout d'inactivité : si aucune action pendant 1h, la session expire (géré par middleware)
+SESSION_IDLE_TIMEOUT =  config('SESSION_IDLE_TIMEOUT', default=3600, cast=int)
 
 # Required to avoid error in swagger
 SWAGGER_SETTINGS = {
-    'LOGIN_URL': '/login/',
+    'LOGIN_URL': '/admin/login/',
+    'LOGOUT_URL': '/admin/logout/',
 }
