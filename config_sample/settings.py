@@ -317,6 +317,6 @@ SESSION_IDLE_TIMEOUT =  config('SESSION_IDLE_TIMEOUT', default=3600, cast=int)
 
 # Required to avoid error in swagger
 SWAGGER_SETTINGS = {
-    'LOGIN_URL': '/admin/login/',
-    'LOGOUT_URL': '/admin/logout/',
+    'LOGIN_URL': '/geocontrib/admin/login/',
+    'LOGOUT_URL': '/geocontrib/admin/logout/',
 }
