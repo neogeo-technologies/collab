@@ -23,7 +23,6 @@ from rest_framework import status
 from rest_framework import views
 from rest_framework import viewsets
 from rest_framework.exceptions import ValidationError
-from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework_mvt.views import BaseMVTView
 from rest_framework.views import APIView
@@ -241,106 +240,6 @@ class FeatureView(
         message = {"message": "Le signalement a été supprimé"}
         return Response(message, status=status.HTTP_200_OK)
 
-    @swagger_auto_schema(
-        operation_summary="Met à jour en masse le statut des signalements",
-        tags=["features"],
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                "status": openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    description="Le nouveau statut à appliquer aux signalements. Exemples : brouillon, en attente, publié, archivé.",
-                    example="published"
-                ),
-            },
-            required=["status"],
-            description="Charge utile JSON contenant le nouveau statut à appliquer"
-        ),
-        responses={
-            200: openapi.Response(
-                description="Réponse réussie, avec distinction entre succès et info",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        "message": openapi.Schema(
-                            type=openapi.TYPE_STRING,
-                            description="Message de confirmation ou d'information",
-                            example="15 signalements mis à jour avec succès à 'publié'."
-                        ),
-                        "level": openapi.Schema(
-                            type=openapi.TYPE_STRING,
-                            description="Niveau de réponse (positive ou info)",
-                            enum=["positive", "info"],
-                            example="positive"
-                        ),
-                    },
-                ),
-            ),
-            400: openapi.Response(
-                description="Requête invalide ou champ manquant",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        "error": openapi.Schema(
-                            type=openapi.TYPE_STRING,
-                            description="Message d'erreur indiquant pourquoi la requête a échoué",
-                            example="Champ 'status' manquant."
-                            )
-                        },
-                    ),
-                ),
-            }
-        )
-    @action(detail=False, methods=['post'], url_path='bulk-update-status')
-    def bulk_update_status(self, request):
-        """
-        Gère la mise à jour en masse du champ statut pour les signalements.
-        """
-        new_status = request.data.get('status')
-
-        # Vérifier que le statut est valide
-        if new_status not in ['draft', 'pending', 'published', 'archived']:
-            return Response(
-                {"error": f"Statut inconnu : '{new_status}'."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Vérifier si le champ "status" est manquant
-        if not new_status:
-            return Response(
-                {"error": "Le champ 'status' est requis."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Récupérer les signalements correspondant aux critères
-        queryset = self.get_queryset()
-
-        # Exclure les signalements avec déjà le nouveau statut
-        queryset = queryset.exclude(status=new_status)
-
-        # Appliquer les permissions
-        queryset = apply_permissions_to_queryset(request.user, queryset)
-
-        # Si le queryset est vide
-        if not queryset.exists():
-            return Response(
-                {
-                    "message": "Aucun signalement ne correspond aux critères pour être mis à jour.",
-                    "level": "info"  # Ajout d'un type pour différencier ce cas
-                },
-                status=status.HTTP_200_OK,  # Renvoyer un code 200 pour que le frontend reçoive le message
-            )
-
-        # Effectuer la mise à jour des signalements
-        updated_count = queryset.update(status=new_status)
-
-        return Response(
-            {
-                "message": f"{updated_count} signalements mis à jour avec succès à '{new_status}'.",
-                "level": "positive"  # Indique un succès dans le type
-            },
-            status=status.HTTP_200_OK,
-        )
 
 class FeatureTypeView(
         mixins.ListModelMixin,
@@ -405,7 +304,61 @@ class FeatureTypeView(
         return super().destroy(request, *args, **kwargs)
 
 
-class ProjectFeaturePaginated(generics.ListAPIView):
+class ProjectFeatureView(generics.GenericAPIView):
+    """
+    Classe de base pour le filtrage des signalements d'un projet donné.
+    - Récupère uniquement les signalements liés à un projet spécifique.
+    - Exclut immédiatement les signalements supprimés.
+    - Applique les filtres définis par l'utilisateur (statut, type, titre).
+    Attention filter_queryset n'est pas appelé par défaut avec APIView qui ne transmet pas la requête non plus
+    """
+
+    def get_queryset(self):
+        """
+        Customize the queryset based on the project slug and apply ordering.
+        """
+        slug = self.kwargs.get('slug')
+        project = get_object_or_404(Project, slug=slug)
+        # Retrieve ordering from query parameters or use the default
+        ordering = self.request.query_params.get('ordering') or '-created_on'
+
+        # Retrieve all available features for the project, respecting user permissions
+        queryset = Feature.handy.availables(self.request.user, project).order_by(ordering, 'feature_id')
+
+        # Exclure immédiatement les signalements supprimés
+        queryset = queryset.filter(deletion_on__isnull=True)
+
+        # Optimize query performance with select_related
+        return queryset.select_related('creator', 'feature_type', 'project')
+
+    def filter_queryset(self, queryset, request=None):
+        """
+        Customize filtering based on query parameters like status, feature type, and title.
+        ATTENTION : Nécessite la requête pour accéder aux paramètres depuis un APIView.
+        """
+        if not request:
+            request = self.request
+        # Filtrer par statut (supporte plusieurs valeurs)
+        status_values = request.query_params.get('status__value')
+        if status_values:
+            status_values_list = status_values.split(',')
+            queryset = queryset.filter(status__in=status_values_list)
+
+        # Filtrer par feature type slug (supporte plusieurs valeurs)
+        feature_type_slugs = request.query_params.get('feature_type_slug')
+        if feature_type_slugs:
+            feature_type_slug_list = feature_type_slugs.split(',')
+            queryset = queryset.filter(feature_type__slug__in=feature_type_slug_list)
+
+        # Filtrer par titre (partiel, insensible à la casse)
+        title = request.query_params.get('title')
+        if title:
+            queryset = queryset.filter(title__icontains=title)
+
+        return queryset
+
+
+class ProjectFeaturePaginated(ProjectFeatureView, generics.ListAPIView):
     """
     Provides a paginated list of features for a specific project.
 
@@ -420,31 +373,9 @@ class ProjectFeaturePaginated(generics.ListAPIView):
     - `ordering`: Specifies the ordering of results. Defaults to '-created_on'.
     - `output`: If set to 'geojson', uses GeoJSON serializers for the response.
     """
-    queryset = Project.objects.all()
     pagination_class = CustomPagination
     lookup_field = 'slug'
     http_method_names = ['get', ]
-
-    def filter_queryset(self, queryset):
-        """
-        Customize filtering based on query parameters like status, feature type, and title.
-        """
-        status_values = self.request.query_params.get('status__value')
-        feature_type_slugs = self.request.query_params.get('feature_type_slug')
-        title = self.request.query_params.get('title')
-        # Filter out features that have been marked as deleted
-        queryset = queryset.filter(deletion_on__isnull=True)
-
-        # Apply filters for status values, feature type slugs, and title
-        if status_values:
-            status_values_list = status_values.split(',')
-            queryset = queryset.filter(status__in=status_values_list)
-        if feature_type_slugs:
-            feature_type_slug_list = feature_type_slugs.split(',')
-            queryset = queryset.filter(feature_type__slug__in=feature_type_slug_list)
-        if title:
-            queryset = queryset.filter(title__icontains=title)
-        return queryset
 
     def get_serializer_class(self):
         """
@@ -457,30 +388,235 @@ class ProjectFeaturePaginated(generics.ListAPIView):
             return FeatureDetailedSerializer
         return FeatureListSerializer
 
-    def get_queryset(self):
-        """
-        Customize the queryset based on the project slug and apply ordering.
-        """
-        slug = self.kwargs.get('slug')
-        project = get_object_or_404(Project, slug=slug)
-        # Retrieve ordering from query parameters or use the default
-        ordering = self.request.query_params.get('ordering') or '-created_on'
-        # Retrieve all available features for the project, respecting user permissions
-        queryset = Feature.handy.availables(user=self.request.user, project=project).order_by(ordering, 'feature_id')
-
-        # Optimize query performance with select_related
-        queryset = queryset.select_related('creator', 'feature_type', 'project')
-        return queryset
-
     @swagger_auto_schema(
-        operation_summary="List features for a project",
-        tags=["features"]
+        operation_summary="List paginated features for a project",
+        tags=["features"],
+        manual_parameters=[
+            openapi.Parameter(
+                name='status__value',
+                in_=openapi.IN_QUERY,
+                description="Comma-separated list of status values to filter features.",
+                type=openapi.TYPE_STRING,
+                required=False
+            ),
+            openapi.Parameter(
+                name='feature_type_slug',
+                in_=openapi.IN_QUERY,
+                description="Comma-separated list of feature type slugs to filter features.",
+                type=openapi.TYPE_STRING,
+                required=False
+            ),
+            openapi.Parameter(
+                name='title',
+                in_=openapi.IN_QUERY,
+                description="Substring to filter features by title.",
+                type=openapi.TYPE_STRING,
+                required=False
+            ),
+            openapi.Parameter(
+                name='ordering',
+                in_=openapi.IN_QUERY,
+                description="Specifies the ordering of results. Defaults to '-created_on'.",
+                type=openapi.TYPE_STRING,
+                required=False
+            ),
+            openapi.Parameter(
+                name='output',
+                in_=openapi.IN_QUERY,
+                description="Output format ('geojson' or default list format).",
+                type=openapi.TYPE_STRING,
+                required=False
+            ),
+        ],
+        responses={
+            200: openapi.Response(
+                description="Paginated list of features.",
+                schema=FeatureListSerializer()
+            ),
+            400: openapi.Response(
+                description="Invalid parameters.",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={"error": openapi.Schema(type=openapi.TYPE_STRING)}
+                ),
+            ),
+            404: openapi.Response(
+                description="Project not found.",
+            ),
+        }
     )
     def get(self, request, *args, **kwargs):
         """
         Override get method to provide a list of features for a project.
         """
         return super().get(request, *args, **kwargs)
+
+
+class ProjectFeatureBulkModify(ProjectFeatureView, APIView):
+    """
+    Vue dédiée pour modifier ou supprimer en masse des signalements dans un projet.
+    Hérite de `ProjectFeatureView` pour la gestion des filtres.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    http_method_names = ['put', 'delete']
+
+    @swagger_auto_schema(
+        operation_summary="Bulk update feature statuses in a project",
+        tags=["features"],
+        manual_parameters=[
+            openapi.Parameter(
+                name='status__value',
+                in_=openapi.IN_QUERY,
+                description="Comma-separated list of status values to filter features before updating.",
+                type=openapi.TYPE_STRING,
+                required=False
+            ),
+            openapi.Parameter(
+                name='feature_type_slug',
+                in_=openapi.IN_QUERY,
+                description="Comma-separated list of feature type slugs to filter features before updating.",
+                type=openapi.TYPE_STRING,
+                required=False
+            ),
+            openapi.Parameter(
+                name='title',
+                in_=openapi.IN_QUERY,
+                description="Substring to filter features by title before updating.",
+                type=openapi.TYPE_STRING,
+                required=False
+            ),
+        ],
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                "status": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="New status to be applied to the filtered features.",
+                    example="published"
+                ),
+            },
+            required=["status"],
+        ),
+        responses={
+            200: openapi.Response(
+                description="Bulk update successful.",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "message": openapi.Schema(type=openapi.TYPE_STRING),
+                        "level": openapi.Schema(type=openapi.TYPE_STRING, enum=["positive", "info"]),
+                    }
+                ),
+            ),
+            400: openapi.Response(description="Invalid request or missing fields."),
+            403: openapi.Response(description="User not authorized."),
+        }
+    )
+    def put(self, request, *args, **kwargs):
+        """
+        Met à jour en masse le statut des signalements d'un projet.
+        """
+        new_status = request.data.get('status')
+
+        if not new_status:
+            return Response({"error": "Le champ 'status' est requis."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if new_status not in ['draft', 'pending', 'published', 'archived']:
+            return Response({"error": f"Statut inconnu : '{new_status}'."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # filter_queryset() doit être appelé manuellement dans une APIView
+        queryset = self.filter_queryset(self.get_queryset(), self.request).exclude(status=new_status)
+
+        slug = self.kwargs.get('slug')
+        project = get_object_or_404(Project, slug=slug)
+
+        if not project:
+            return Response({"error": "Le champ 'slug' est requis pour retrouver le projet."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Appliquer les permissions
+        queryset = apply_permissions_to_queryset(request.user, queryset, project, "edit", new_status)
+
+        if not queryset.exists():
+            return Response(
+                {"message": "Aucun signalement ne correspond aux critères ou vous n'avez pas les permissions nécessaires.", "level": "info"},
+                status=status.HTTP_200_OK
+            )
+
+        updated_count = queryset.update(status=new_status)
+
+        return Response(
+            {"message": f"{updated_count} signalements mis à jour avec succès à '{new_status}'.", "level": "positive"},
+            status=status.HTTP_200_OK
+        )
+
+    @swagger_auto_schema(
+        operation_summary="Bulk delete features in a project",
+        tags=["features"],
+        manual_parameters=[
+            openapi.Parameter(
+                name='status__value',
+                in_=openapi.IN_QUERY,
+                description="Comma-separated list of status values to filter features before deletion.",
+                type=openapi.TYPE_STRING,
+                required=False
+            ),
+            openapi.Parameter(
+                name='feature_type_slug',
+                in_=openapi.IN_QUERY,
+                description="Comma-separated list of feature type slugs to filter features before deletion.",
+                type=openapi.TYPE_STRING,
+                required=False
+            ),
+            openapi.Parameter(
+                name='title',
+                in_=openapi.IN_QUERY,
+                description="Substring to filter features by title before deletion.",
+                type=openapi.TYPE_STRING,
+                required=False
+            ),
+        ],
+        responses={
+            200: openapi.Response(
+                description="Bulk deletion successful.",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "message": openapi.Schema(type=openapi.TYPE_STRING),
+                        "level": openapi.Schema(type=openapi.TYPE_STRING, enum=["positive", "info"]),
+                    }
+                ),
+            ),
+            403: openapi.Response(description="User not authorized."),
+        }
+    )
+    def delete(self, request, *args, **kwargs):
+        """
+        Supprime en masse les signalements d'un projet.
+        """
+        # filter_queryset() doit être appelé manuellement dans une APIView
+        queryset = self.filter_queryset(self.get_queryset(), self.request)
+
+        slug = self.kwargs.get('slug')
+        project = get_object_or_404(Project, slug=slug)
+
+        if not project:
+            return Response({"error": "Le champ 'slug' est requis pour retrouver le projet."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Appliquer les permissions
+        queryset = apply_permissions_to_queryset(request.user, queryset, project, "delete")
+
+        if not queryset.exists():
+            return Response(
+                {"message": "Aucun signalement à supprimer ou vous n'avez pas les permissions nécessaires.", "level": "info"},
+                status=status.HTTP_200_OK
+            )
+
+        deleted_count = queryset.update(deletion_on=date.today())
+
+        return Response(
+            {"message": f"{deleted_count} signalements supprimés avec succès.", "level": "positive"},
+            status=status.HTTP_200_OK
+        )
 
 
 class ProjectFeaturePositionInList(views.APIView):
@@ -492,27 +628,57 @@ class ProjectFeaturePositionInList(views.APIView):
 
     @swagger_auto_schema(
         operation_summary="Get feature position in list",
+        tags=["features"],
+        manual_parameters=[
+            openapi.Parameter(
+                name='ordering',
+                in_=openapi.IN_QUERY,
+                description="Specifies the ordering of results. Defaults to '-created_on'.",
+                type=openapi.TYPE_STRING,
+                required=False
+            ),
+            openapi.Parameter(
+                name='status__value',
+                in_=openapi.IN_QUERY,
+                description="Comma-separated list of status values to filter features.",
+                type=openapi.TYPE_STRING,
+                required=False
+            ),
+            openapi.Parameter(
+                name='feature_type_slug',
+                in_=openapi.IN_QUERY,
+                description="Comma-separated list of feature type slugs to filter features.",
+                type=openapi.TYPE_STRING,
+                required=False
+            ),
+            openapi.Parameter(
+                name='title',
+                in_=openapi.IN_QUERY,
+                description="Substring to filter features by title.",
+                type=openapi.TYPE_STRING,
+                required=False
+            ),
+        ],
         responses={
             200: openapi.Response(
-                description="Feature position in the list",
+                description="Feature position in the list.",
                 schema=openapi.Schema(
                     type=openapi.TYPE_INTEGER,
-                    description="Position of the feature in the list"
+                    description="Position of the feature in the list."
                 ),
             ),
+            204: openapi.Response(description="No Content - The feature exists but does not match the filters."),
             404: openapi.Response(
-                description="Not Found",
+                description="Not Found - Feature not found in the list.",
                 schema=openapi.Schema(
                     type=openapi.TYPE_OBJECT,
                     properties={
                         "detail": openapi.Schema(type=openapi.TYPE_STRING, description="Error message")
                     },
-                    example={"detail": no_data_msg}
+                    example={"detail": "Feature not found in the list."}
                 ),
             ),
-            204: openapi.Response(description="No Content"),
         },
-        tags=["features"],
     )
     def get(self, request, slug, feature_id):
         project = get_object_or_404(Project, slug=slug)

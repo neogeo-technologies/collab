@@ -24,6 +24,7 @@ from api.views.feature import GetIdgoCatalogView
 from api.views.feature import PreRecordedValuesView
 from api.views.feature import ProjectFeatureBbox
 from api.views.feature import ProjectFeaturePaginated
+from api.views.feature import ProjectFeatureBulkModify
 from api.views.feature import ProjectFeaturePositionInList
 from api.views.flat_pages import FlatPagesView
 from api.views.login import LoginView
@@ -141,6 +142,9 @@ urlpatterns = [
     path(
         'projects/<slug:slug>/feature-paginated/',
         ProjectFeaturePaginated.as_view(), name='project-feature-paginated'),
+    path(
+        'projects/<slug:slug>/feature-bulk-modify/',
+        ProjectFeatureBulkModify.as_view(), name='project-feature-bulk-modify'),
     path(
         'events/',
         EventView.as_view(), name='events-list'),
