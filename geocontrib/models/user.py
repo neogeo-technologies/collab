@@ -163,6 +163,7 @@ class Authorization(models.Model):
             # Les contributeurs et utilisateurs de droits supérieurs peuvent créer des features
             if user_rank >= Rank.CONTRIBUTOR.value:
                 user_perms['can_create_feature'] = True
+                user_perms['is_project_contributor'] = True
 
             if user_rank == Rank.SUPER_CONTRIBUTOR.value:
                 user_perms['can_update_feature'] = True

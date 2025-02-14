@@ -1,35 +1,82 @@
-from django.db.models import Q
+from django.apps import apps
 
-def apply_permissions_to_queryset(user, queryset):
+def apply_permissions_to_queryset(user, queryset, project, action="edit", new_status=None):
     """
-    Applique les permissions au queryset en fonction du rôle de l'utilisateur et des statuts autorisés.
-    """
-    permissions = {
-        'Administrateur projet': ['draft', 'pending', 'published', 'archived'],
-        'Modérateur': ['draft', 'pending', 'published'],
-        'Super Contributeur': ['draft', 'pending', 'published'],
-        'Contributeur': ['draft', 'pending', 'published'],
-    }
+    Applique les permissions au queryset en fonction du rôle de l'utilisateur et du projet.
 
+    Cette fonction gère deux types d'actions :
+    - "edit" : Filtre les signalements que l'utilisateur peut modifier et vérifier s'il peut changer de statut.
+    - "delete" : Filtre les signalements que l'utilisateur peut supprimer.
+
+    Args:
+        user (User): L'utilisateur effectuant l'action.
+        queryset (QuerySet): Le queryset des signalements à filtrer.
+        project (Project): Le projet concerné.
+        action (str, optional): "edit" ou "delete". Par défaut "edit".
+        new_status (str, optional): Statut cible du signalement à modifier.
+
+    Returns:
+        QuerySet: Le queryset filtré en fonction des permissions de l'utilisateur.
+    """
+
+    # Récupération des modèles nécessaires
+    Authorization = apps.get_model(app_label='geocontrib', model_name='Authorization')
+    # Un super administrateur a tous les droits
     if user.is_superuser:
         return queryset
 
-    user_status = getattr(user, 'status', None)
-    allowed_statuses = permissions.get(user_status, [])
+    # Vérification du rôle administrateur du projet
+    is_project_administrator = Authorization.has_permission(user, 'is_project_administrator', project)
 
-    if user_status == 'Contributeur':
-        queryset = queryset.filter(
-            Q(creator__first_name=user.first_name) &
-            Q(creator__last_name=user.last_name) &
-            Q(status__in=allowed_statuses)
-        )
-    elif user_status in permissions:
-        queryset = queryset.filter(
-            Q(project__admins=user) |
-            Q(project__moderators=user) |
-            Q(status__in=allowed_statuses)
-        )
-    else:
-        queryset = queryset.none()
+    ## Gestion de l'édition des signalements
+    if action == "edit":
+        # Vérification du mode de modération
+        is_moderated = project.moderation
+        # Vérification des autres rôle utilisateur dans le projet nécessaires seulement à l'édition
+        is_project_moderator = Authorization.has_permission(user, 'is_project_moderator', project)
+        is_project_super_contributor = Authorization.has_permission(user, 'is_project_super_contributor', project)
+        is_project_contributor = Authorization.has_permission(user, 'is_project_contributor', project)
 
-    return queryset
+        # Définition des statuts modifiables par rôle
+        if is_project_administrator or is_project_moderator or (is_project_contributor and not is_moderated):
+            # statuts toujours disponibles: Brouillon, Publié, Archivé (sauf en attente à destination des contributeurs et supercontributeurs en projet modéré)
+            valid_statuses = ["draft", "published", "archived"]
+
+        elif is_moderated:
+            if is_project_super_contributor:
+                # Super Contributeur en mode modéré : Peut modifier vers brouillon, en attente
+                valid_statuses = ["draft", "pending"]
+            elif is_project_contributor:
+                # Contributeur peut modifier vers tous les statuts disponibles (ses propres signalements) sauf vers publié dans un projet modéré
+                valid_statuses = ["draft", "pending", "archived"] 
+
+        # Sélection des signalements modifiable selon leur statut et le rôle de l'utilisateur
+        if is_project_administrator:
+            # Administrateur peut modifier tous les statuts
+            queryset = queryset.filter(status__in=['draft', 'pending', 'published', 'archived'])
+        elif  is_project_moderator or is_project_super_contributor or is_project_contributor:
+            # Les autres utilisateurs peuvent modifier tous les statuts sauf archivé
+            queryset = queryset.filter(status__in=['draft', 'pending', 'published'])
+            if is_project_contributor:
+                # Contributeur ne peut modifier que ses propres signalements
+                queryset = queryset.filter(creator=user)
+
+        else:
+            return queryset.none()  # Aucun accès
+
+        # Vérification du statut cible
+        if new_status and new_status not in valid_statuses:
+            return queryset.none()
+
+        return queryset
+
+    ## Gestion de la suppression des signalements
+    elif action == "delete":
+        if is_project_administrator:
+            return queryset  # L'admin peut tout supprimer
+
+        else: # un autre utilisateur peut supprimer seulement ses propres signalements
+            return queryset.filter(creator=user)
+
+    ## Par défaut, accès interdit
+    return queryset.none()
