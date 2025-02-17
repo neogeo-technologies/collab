@@ -30,7 +30,7 @@ class SessionIdleTimeoutMiddleware:
           afin d'éviter que les appels automatiques (ex: SSO) ne prolongent la session.
         """
         # Liste des endpoints à exclure du suivi d'activité
-        excluded_paths = ['/user_info']
+        excluded_paths = ['/user_info', 'import-tasks']
 
         if request.user.is_authenticated:
             # Récupérer le timestamp du dernier moment d'activité enregistré en session
